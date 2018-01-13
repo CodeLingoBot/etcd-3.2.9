@@ -13,4 +13,7 @@
 // limitations under the License.
 
 // Package rafttest provides functional tests for etcd's raft implementation.
+
+// rafttest 使用来给 etcd/raft 做功能性测试
+// 其中自己实现了一个简单的 network transport，Disk I/O 方面用了 MemoryStorage
 package rafttest
