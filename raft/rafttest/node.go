@@ -25,14 +25,14 @@ import (
 )
 
 type node struct {
-	raft.Node
-	id     uint64
-	iface  iface
-	stopc  chan struct{}
-	pausec chan bool
+	raft.Node // Raft 集群的节点
+	id        uint64
+	iface     iface // network transport
+	stopc     chan struct{}
+	pausec    chan bool
 
 	// stable
-	storage *raft.MemoryStorage
+	storage *raft.MemoryStorage // 持久化存储
 
 	mu    sync.Mutex // guards state
 	state raftpb.HardState
@@ -62,7 +62,7 @@ func startNode(id uint64, peers []raft.Peer, iface iface) *node {
 
 func (n *node) start() {
 	n.stopc = make(chan struct{})
-	ticker := time.Tick(5 * time.Millisecond)
+	ticker := time.Tick(5 * time.Millisecond) // 5ms 产生一次时钟信号
 
 	go func() {
 		for {
@@ -70,21 +70,22 @@ func (n *node) start() {
 			case <-ticker:
 				n.Tick()
 			case rd := <-n.Ready():
-				if !raft.IsEmptyHardState(rd.HardState) {
+				if !raft.IsEmptyHardState(rd.HardState) { // 如果此时节点的 HardState 不为空，更新 HardState
 					n.mu.Lock()
 					n.state = rd.HardState
 					n.mu.Unlock()
 					n.storage.SetHardState(n.state)
 				}
-				n.storage.Append(rd.Entries)
+				n.storage.Append(rd.Entries) // 持久化日志
 				time.Sleep(time.Millisecond)
 				// TODO: make send async, more like real world...
+				// 发送环节应该异步化，这样才能更像真实的世界
 				for _, m := range rd.Messages {
 					n.iface.send(m)
 				}
-				n.Advance()
+				n.Advance() // 进一步演化（advance）
 			case m := <-n.iface.recv():
-				go n.Step(context.TODO(), m)
+				go n.Step(context.TODO(), m) // 接收到新的消息
 			case <-n.stopc:
 				n.Stop()
 				log.Printf("raft.%d: stop", n.id)
@@ -93,7 +94,7 @@ func (n *node) start() {
 				return
 			case p := <-n.pausec:
 				recvms := make([]raftpb.Message, 0)
-				for p {
+				for p { // 如果收到 pause 信号（即暂停），节点会创建一个接收消息的 buffer，仍不停地接收消息，直至停止 pause 动作
 					select {
 					case m := <-n.iface.recv():
 						recvms = append(recvms, m)

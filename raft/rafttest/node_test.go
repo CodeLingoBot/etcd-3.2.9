@@ -127,6 +127,7 @@ func TestPause(t *testing.T) {
 	}
 }
 
+// 这是一个轮询的过程
 func waitLeader(ns []*node) int {
 	var l map[uint64]struct{}
 	var lindex int
@@ -144,7 +145,7 @@ func waitLeader(ns []*node) int {
 			}
 		}
 
-		if len(l) == 1 {
+		if len(l) == 1 { // 有且只有一个 leader
 			return lindex
 		}
 	}
@@ -153,8 +154,9 @@ func waitLeader(ns []*node) int {
 func waitCommitConverge(ns []*node, target uint64) bool {
 	var c map[uint64]struct{}
 
+	// 这也是一个轮询的过程，但是有总时间的限制：50 * 100ms = 5s
 	for i := 0; i < 50; i++ {
-		c = make(map[uint64]struct{})
+		c = make(map[uint64]struct{}) // 每次都创建一个 map 结构
 		var good int
 
 		for _, n := range ns {

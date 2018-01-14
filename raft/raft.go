@@ -137,6 +137,10 @@ type Config struct {
 	// raft. raft will not return entries to the application smaller or equal to
 	// Applied. If Applied is unset when restarting, raft might return previous
 	// applied entries. This is a very application dependent configuration.
+
+	// Applied 是最后被 apply 到状态机的 index。重启节点前必须设置该值
+	// raft 不会返回小于或等于 Applied 的日志
+	// 如果在重启前没有设置 Applied，raft 将返回先前被 apply 的日志
 	Applied uint64
 
 	// MaxSizePerMsg limits the max size of each append message. Smaller value
@@ -512,6 +516,8 @@ func (r *raft) reset(term uint64) {
 
 func (r *raft) appendEntry(es ...pb.Entry) {
 	li := r.raftLog.lastIndex()
+	// 客户端提出的 proposal 消息中的 index 和 term 是没有意义的
+	// 改写消息中的 index 和 term，以 leader 为准
 	for i := range es {
 		es[i].Term = r.Term
 		es[i].Index = li + 1 + uint64(i)
@@ -528,7 +534,7 @@ func (r *raft) tickElection() {
 
 	if r.promotable() && r.pastElectionTimeout() {
 		r.electionElapsed = 0
-		r.Step(pb.Message{From: r.id, Type: pb.MsgHup})
+		r.Step(pb.Message{From: r.id, Type: pb.MsgHup}) // 当发生 election timeout 的时候，给自己发送一条 MsgHup 消息
 	}
 }
 
@@ -679,7 +685,7 @@ func (r *raft) poll(id uint64, t pb.MessageType, v bool) (granted int) {
 func (r *raft) Step(m pb.Message) error {
 	// Handle the message term, which may result in our stepping down to a follower.
 	switch {
-	case m.Term == 0:
+	case m.Term == 0: // 如果 Message 的 term 为 0，说明这是 local message，即自己发给自己的消息
 		// local message
 	case m.Term > r.Term:
 		lead := m.From
