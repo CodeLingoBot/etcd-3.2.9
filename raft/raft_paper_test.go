@@ -24,6 +24,14 @@ Init part uses simple and understandable way to simulate the init state.
 Test part uses Step function to generate the scenario. Check part checks
 outgoing messages and state.
 */
+
+/*
+	raft_paper_test 是用来验证论文中提及的各个场景。
+	每个测试分 3 个环节：init -> test -> check
+	init 环节用简单的配置生成初始状态
+	test 环节用 Step() 来生成场景
+	check 环节用来检查发出的消息和状态
+*/
 package raft
 
 import (

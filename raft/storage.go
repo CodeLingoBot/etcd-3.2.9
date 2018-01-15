@@ -109,7 +109,7 @@ func (ms *MemoryStorage) Entries(lo, hi, maxSize uint64) ([]pb.Entry, error) {
 	ms.Lock()
 	defer ms.Unlock()
 	offset := ms.ents[0].Index
-	if lo <= offset {
+	if lo <= offset { // 注意这里有个 等于 的边界条件，因为第一项是 snapshot 后的结果
 		return nil, ErrCompacted
 	}
 	if hi > ms.lastIndex()+1 {
@@ -181,7 +181,7 @@ func (ms *MemoryStorage) ApplySnapshot(snap pb.Snapshot) error {
 	}
 
 	ms.snapshot = snap
-	ms.ents = []pb.Entry{{Term: snap.Metadata.Term, Index: snap.Metadata.Index}}
+	ms.ents = []pb.Entry{{Term: snap.Metadata.Term, Index: snap.Metadata.Index}} // 将日志化归为 1 项了
 	return nil
 }
 
