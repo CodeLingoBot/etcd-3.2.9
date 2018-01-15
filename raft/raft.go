@@ -370,7 +370,7 @@ func (r *raft) send(m pb.Message) {
 
 // sendAppend sends RPC, with entries to the given peer.
 func (r *raft) sendAppend(to uint64) {
-	pr := r.prs[to]
+	pr := r.prs[to] // 获取到目的节点的 process
 	if pr.IsPaused() {
 		return
 	}
@@ -380,6 +380,7 @@ func (r *raft) sendAppend(to uint64) {
 	term, errt := r.raftLog.term(pr.Next - 1)
 	ents, erre := r.raftLog.entries(pr.Next, r.maxMsgSize)
 
+	// 如果获取 term 或者 entry 失败，就发送 snapshot
 	if errt != nil || erre != nil { // send snapshot if we failed to get term or entries
 		if !pr.RecentActive {
 			r.logger.Debugf("ignore sending snapshot to %x since it is not recently active", to)
@@ -406,7 +407,7 @@ func (r *raft) sendAppend(to uint64) {
 		r.logger.Debugf("%x paused sending replication messages to %x [%s]", r.id, to, pr)
 	} else {
 		m.Type = pb.MsgApp
-		m.Index = pr.Next - 1
+		m.Index = pr.Next - 1 // 上一个 index
 		m.LogTerm = term
 		m.Entries = ents
 		m.Commit = r.raftLog.committed
@@ -414,8 +415,8 @@ func (r *raft) sendAppend(to uint64) {
 			switch pr.State {
 			// optimistically increase the next when in ProgressStateReplicate
 			case ProgressStateReplicate:
-				last := m.Entries[n-1].Index
-				pr.optimisticUpdate(last)
+				last := m.Entries[n-1].Index // 待发送 entries 的最后一个 index
+				pr.optimisticUpdate(last)    // 将对应节点的 process 的 next 做 last+1
 				pr.ins.add(last)
 			case ProgressStateProbe:
 				pr.pause()
@@ -451,7 +452,7 @@ func (r *raft) sendHeartbeat(to uint64, ctx []byte) {
 func (r *raft) bcastAppend() {
 	for id := range r.prs {
 		if id == r.id {
-			continue
+			continue // 忽略 leader 节点，即本地节点
 		}
 		r.sendAppend(id)
 	}
@@ -485,7 +486,7 @@ func (r *raft) maybeCommit() bool {
 	for id := range r.prs {
 		mis = append(mis, r.prs[id].Match)
 	}
-	sort.Sort(sort.Reverse(mis))
+	sort.Sort(sort.Reverse(mis)) // 从大到小排序
 	mci := mis[r.quorum()-1]
 	return r.raftLog.maybeCommit(mci, r.Term)
 }
@@ -522,8 +523,8 @@ func (r *raft) appendEntry(es ...pb.Entry) {
 		es[i].Term = r.Term
 		es[i].Index = li + 1 + uint64(i)
 	}
-	r.raftLog.append(es...)
-	r.prs[r.id].maybeUpdate(r.raftLog.lastIndex())
+	r.raftLog.append(es...)                        // 更新 unstable 中日志
+	r.prs[r.id].maybeUpdate(r.raftLog.lastIndex()) // 推进 leader 节点的 process
 	// Regardless of maybeCommit's return, our caller will call bcastAppend.
 	r.maybeCommit()
 }

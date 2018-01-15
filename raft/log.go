@@ -21,6 +21,10 @@ import (
 	pb "github.com/coreos/etcd/raft/raftpb"
 )
 
+// 两个非常重要的 index
+// - committed: 已经被大多数节点 commit 的 index
+// - applied: 已经被 apply 到状态机的 index
+// 循环不变式：applied <= commited
 type raftLog struct {
 	// storage contains all stable entries since the last snapshot.
 	storage Storage
@@ -50,11 +54,11 @@ func newLog(storage Storage, logger Logger) *raftLog {
 		storage: storage,
 		logger:  logger,
 	}
-	firstIndex, err := storage.FirstIndex()
+	firstIndex, err := storage.FirstIndex() // 从持久化存储的 storage 中获取第一条 index
 	if err != nil {
 		panic(err) // TODO(bdarnell)
 	}
-	lastIndex, err := storage.LastIndex()
+	lastIndex, err := storage.LastIndex() // 从持久化存储的 storage 中获取最后一条 index
 	if err != nil {
 		panic(err) // TODO(bdarnell)
 	}
@@ -79,7 +83,7 @@ func (l *raftLog) maybeAppend(index, logTerm, committed uint64, ents ...pb.Entry
 		ci := l.findConflict(ents)
 		switch {
 		case ci == 0:
-		case ci <= l.committed:
+		case ci <= l.committed: // 说明更已有的 entry 发生了 conflict
 			l.logger.Panicf("entry %d conflict with committed entry [committed(%d)]", ci, l.committed)
 		default:
 			offset := index + 1
@@ -113,6 +117,10 @@ func (l *raftLog) append(ents ...pb.Entry) uint64 {
 // a different term.
 // The first entry MUST have an index equal to the argument 'from'.
 // The index of the given entries MUST be continuously increasing.
+
+// 如果没有 conflict 也没有新增 entry 返回 0
+// 如果没有 conflict 但是有新增 entries，返回新增 entry 的第一个 index
+// 如果有 conflict，返回发生 conflict 的 index，后面通过判断这个 index 是否大于 l.committed 来知道是不是有新增 entry
 func (l *raftLog) findConflict(ents []pb.Entry) uint64 {
 	for _, ne := range ents {
 		if !l.matchTerm(ne.Index, ne.Term) {
@@ -162,6 +170,7 @@ func (l *raftLog) snapshot() (pb.Snapshot, error) {
 	return l.storage.Snapshot()
 }
 
+// 查询顺序：先去缓存里头找（unstable），找不到去持久化介质找（storage）
 func (l *raftLog) firstIndex() uint64 {
 	if i, ok := l.unstable.maybeFirstIndex(); ok {
 		return i
@@ -173,6 +182,7 @@ func (l *raftLog) firstIndex() uint64 {
 	return index
 }
 
+// 跟 firstIndex() 是一样的查询顺序
 func (l *raftLog) lastIndex() uint64 {
 	if i, ok := l.unstable.maybeLastIndex(); ok {
 		return i
@@ -184,16 +194,21 @@ func (l *raftLog) lastIndex() uint64 {
 	return i
 }
 
+// 其实是一个更新 committed 的动作
 func (l *raftLog) commitTo(tocommit uint64) {
 	// never decrease commit
+
+	// 只有当 tocommit（即要 commit 的 index） 大于目前已经 commit 的 index
+	// 才会触发 update commited 的操作
 	if l.committed < tocommit {
-		if l.lastIndex() < tocommit {
+		if l.lastIndex() < tocommit { // 如果 tocommit 超过 lastIndex()，说明超出范围了
 			l.logger.Panicf("tocommit(%d) is out of range [lastIndex(%d)]. Was the raft log corrupted, truncated, or lost?", tocommit, l.lastIndex())
 		}
 		l.committed = tocommit
 	}
 }
 
+// 其实是一个更新 applied 的动作
 func (l *raftLog) appliedTo(i uint64) {
 	if i == 0 {
 		return
@@ -204,6 +219,7 @@ func (l *raftLog) appliedTo(i uint64) {
 	l.applied = i
 }
 
+// 其实就是删除缓存（unstable）
 func (l *raftLog) stableTo(i, t uint64) { l.unstable.stableTo(i, t) }
 
 func (l *raftLog) stableSnapTo(i uint64) { l.unstable.stableSnapTo(i) }
@@ -216,6 +232,7 @@ func (l *raftLog) lastTerm() uint64 {
 	return t
 }
 
+// 先从缓存里找，找不到去 storage 里找
 func (l *raftLog) term(i uint64) (uint64, error) {
 	// the valid term range is [index of dummy entry, last index]
 	dummyIndex := l.firstIndex() - 1
@@ -268,6 +285,7 @@ func (l *raftLog) isUpToDate(lasti, term uint64) bool {
 	return term > l.lastTerm() || (term == l.lastTerm() && lasti >= l.lastIndex())
 }
 
+// 判定给定 index 是否符合 term
 func (l *raftLog) matchTerm(i, term uint64) bool {
 	t, err := l.term(i)
 	if err != nil {
