@@ -16,3 +16,5 @@ hack/tls-setup/certs
 *.iml
 gopath-for-idea
 copycat
+main
+raftexample-*
