@@ -130,6 +130,9 @@ func (pr *Progress) optimisticUpdate(n uint64) { pr.Next = n + 1 }
 
 // maybeDecrTo returns false if the given to index comes from an out of order message.
 // Otherwise it decreases the progress next index to min(rejected, last) and returns true.
+
+// rejected: 被拒绝那条消息的 index
+// last: hint
 func (pr *Progress) maybeDecrTo(rejected, last uint64) bool {
 	if pr.State == ProgressStateReplicate {
 		// the rejection must be stale if the progress has matched and "rejected"
@@ -240,6 +243,7 @@ func (in *inflights) growBuf() {
 
 // freeTo frees the inflights smaller or equal to the given `to` flight.
 // freeTo 将释放那些 小于或等于 to 的 flight
+// 就是那个环形 buffer 的策略
 func (in *inflights) freeTo(to uint64) {
 	if in.count == 0 || to < in.buffer[in.start] {
 		// out of the left side of the window

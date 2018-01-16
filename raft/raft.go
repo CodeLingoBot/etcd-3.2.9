@@ -1089,7 +1089,7 @@ func stepFollower(r *raft, m pb.Message) {
 }
 
 func (r *raft) handleAppendEntries(m pb.Message) {
-	if m.Index < r.raftLog.committed {
+	if m.Index < r.raftLog.committed { // 如果 leader 的上一条 log 的 index 小于当前节点的 committed
 		r.send(pb.Message{To: m.From, Type: pb.MsgAppResp, Index: r.raftLog.committed})
 		return
 	}
