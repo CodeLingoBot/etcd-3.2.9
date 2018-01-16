@@ -266,6 +266,8 @@ func (rc *raftNode) startRaft() {
 	rc.wal = rc.replayWAL()
 
 	rpeers := make([]raft.Peer, len(rc.peers))
+
+	// 这段对 rpeers 的操作是有问题的，没起到任何作用
 	for i := range rpeers {
 		rpeers[i] = raft.Peer{ID: uint64(i + 1)}
 	}
