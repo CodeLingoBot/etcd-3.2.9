@@ -23,12 +23,14 @@ import (
 
 func preallocExtend(f *os.File, sizeInBytes int64) error {
 	// use mode = 0 to change size
+	// 这个系统调用用来给指定文件分配大小
 	err := syscall.Fallocate(int(f.Fd()), 0, 0, sizeInBytes)
 	if err != nil {
 		errno, ok := err.(syscall.Errno)
 		// not supported; fallback
 		// fallocate EINTRs frequently in some environments; fallback
 		if ok && (errno == syscall.ENOTSUP || errno == syscall.EINTR) {
+			// 如果分配失败，fallback 到 preallocExtendTrunc() 方法来
 			return preallocExtendTrunc(f, sizeInBytes)
 		}
 	}

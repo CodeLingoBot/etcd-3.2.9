@@ -35,12 +35,14 @@ func Preallocate(f *os.File, sizeInBytes int64, extendFile bool) error {
 	return preallocFixed(f, sizeInBytes)
 }
 
+// 我没太搞明白这些 Seek 动作是用来干什么，感觉去掉也可以
 func preallocExtendTrunc(f *os.File, sizeInBytes int64) error {
-	curOff, err := f.Seek(0, io.SeekCurrent)
+	curOff, err := f.Seek(0, io.SeekCurrent) // 其实还是在原来的位置上，curOff 即是当前读取的长度
 	if err != nil {
 		return err
 	}
-	size, err := f.Seek(sizeInBytes, io.SeekEnd)
+	size, err := f.Seek(sizeInBytes, io.SeekEnd) // 其实在 end 的基础上挪后 sizeInBytes 个单位，比如现在长度为 10
+	// 则 fseek(3, io.SeekEnd) 会返回 10 + 3 + 1 = 14
 	if err != nil {
 		return err
 	}
@@ -50,5 +52,5 @@ func preallocExtendTrunc(f *os.File, sizeInBytes int64) error {
 	if sizeInBytes > size {
 		return nil
 	}
-	return f.Truncate(sizeInBytes)
+	return f.Truncate(sizeInBytes) // 最后使用 Truncate() 动作来扩张 file 的大小
 }

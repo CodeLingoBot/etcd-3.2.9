@@ -63,6 +63,8 @@ func New(dir string) *Snapshotter {
 	}
 }
 
+// SaveSnap() 持久化快照
+// 先判断传入的快照是否为空，如果非空就保存快照
 func (s *Snapshotter) SaveSnap(snapshot raftpb.Snapshot) error {
 	if raft.IsEmptySnap(snapshot) {
 		return nil
@@ -73,10 +75,11 @@ func (s *Snapshotter) SaveSnap(snapshot raftpb.Snapshot) error {
 func (s *Snapshotter) save(snapshot *raftpb.Snapshot) error {
 	start := time.Now()
 
+	// 生成 snapshot 的文件名
 	fname := fmt.Sprintf("%016x-%016x%s", snapshot.Metadata.Term, snapshot.Metadata.Index, snapSuffix)
-	b := pbutil.MustMarshal(snapshot)
-	crc := crc32.Update(0, crcTable, b)
-	snap := snappb.Snapshot{Crc: crc, Data: b}
+	b := pbutil.MustMarshal(snapshot)          // 将 pb 结构转化成 byte
+	crc := crc32.Update(0, crcTable, b)        // 根据 snapshot 的内容生成 CRC
+	snap := snappb.Snapshot{Crc: crc, Data: b} // 生成 snaphot 的二进制结构
 	d, err := snap.Marshal()
 	if err != nil {
 		return err
@@ -84,7 +87,7 @@ func (s *Snapshotter) save(snapshot *raftpb.Snapshot) error {
 		marshallingDurations.Observe(float64(time.Since(start)) / float64(time.Second))
 	}
 
-	err = pioutil.WriteAndSyncFile(filepath.Join(s.dir, fname), d, 0666)
+	err = pioutil.WriteAndSyncFile(filepath.Join(s.dir, fname), d, 0666) // fsync 地写入到磁盘
 	if err == nil {
 		saveDurations.Observe(float64(time.Since(start)) / float64(time.Second))
 	} else {

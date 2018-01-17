@@ -51,12 +51,17 @@ func NewPageWriter(w io.Writer, pageBytes, pageOffset int) *PageWriter {
 }
 
 func (pw *PageWriter) Write(p []byte) (n int, err error) {
+	// 如果将要写入的字节数加上目前 buffer 已有数据的长度位于水位线内
+	// 则直接将数据写入，并增加 bufferedBytes 的值
 	if len(p)+pw.bufferedBytes <= pw.bufWatermarkBytes {
 		// no overflow
 		copy(pw.buf[pw.bufferedBytes:], p)
 		pw.bufferedBytes += len(p)
 		return len(p), nil
 	}
+
+	// 执行一下操作说明写入的字节数将会超过水位线
+
 	// complete the slack page in the buffer if unaligned
 	slack := pw.pageBytes - ((pw.pageOffset + pw.bufferedBytes) % pw.pageBytes)
 	if slack != pw.pageBytes {
