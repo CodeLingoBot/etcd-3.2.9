@@ -29,10 +29,11 @@ import (
 )
 
 // None is a placeholder node ID used when there is no leader.
-const None uint64 = 0
+const None uint64 = 0 // 这是一个保留的 node id
 const noLimit = math.MaxUint64
 
 // Possible values for StateType.
+// StateType 可能的值
 const (
 	StateFollower StateType = iota
 	StateCandidate
@@ -46,12 +47,19 @@ type ReadOnlyOption int
 const (
 	// ReadOnlySafe guarantees the linearizability of the read only request by
 	// communicating with the quorum. It is the default and suggested option.
+
+	// ReadOnlySafe 通过与 quorum 通信来保证线性一致性读
+	// 这是默认和推荐配置
 	ReadOnlySafe ReadOnlyOption = iota
 	// ReadOnlyLeaseBased ensures linearizability of the read only request by
 	// relying on the leader lease. It can be affected by clock drift.
 	// If the clock drift is unbounded, leader might keep the lease longer than it
 	// should (clock can move backward/pause without any bound). ReadIndex is not safe
 	// in that case.
+
+	// ReadOnlyLeaseBased 用 leader lease 来保证线性一致性读
+	// 但是它容易受到时钟漂移（clock drift）的影响
+	// 如果 clock drift is unbounded，leader 可能租约将长于预期
 	ReadOnlyLeaseBased
 )
 
@@ -70,6 +78,8 @@ const (
 // lockedRand is a small wrapper around rand.Rand to provide
 // synchronization. Only the methods needed by the code are exposed
 // (e.g. Intn).
+
+// lockedRand 是对 rand.Rand 的一个简单的包装，加了个同步机制
 type lockedRand struct {
 	mu   sync.Mutex
 	rand *rand.Rand
@@ -114,6 +124,9 @@ type Config struct {
 	// should only be set when starting a new raft cluster. Restarting raft from
 	// previous configuration will panic if peers is set. peer is private and only
 	// used for testing right now.
+
+	// peers 包含了所有节点的 ID（包括自己）
+	// 它必须在集群启动只是就被设置好
 	peers []uint64
 
 	// ElectionTick is the number of Node.Tick invocations that must pass between
@@ -148,12 +161,17 @@ type Config struct {
 	// operation). On the other side, it might affect the throughput during normal
 	// replication. Note: math.MaxUint64 for unlimited, 0 for at most one entry per
 	// message.
+
+	// MaxSizePerMsg 限制了每条 append message 的最大大小
 	MaxSizePerMsg uint64
 	// MaxInflightMsgs limits the max number of in-flight append messages during
 	// optimistic replication phase. The application transportation layer usually
 	// has its own sending buffer over TCP/UDP. Setting MaxInflightMsgs to avoid
 	// overflowing that sending buffer. TODO (xiangli): feedback to application to
 	// limit the proposal rate?
+
+	// MaxInflighMsgs 限制了当前能有多少 append message
+	// 通常应用层都有自己的 sending buffer
 	MaxInflightMsgs int
 
 	// CheckQuorum specifies if the leader should check quorum activity. Leader
@@ -576,13 +594,13 @@ func (r *raft) becomeFollower(term uint64, lead uint64) {
 
 func (r *raft) becomeCandidate() {
 	// TODO(xiangli) remove the panic when the raft implementation is stable
-	if r.state == StateLeader {
+	if r.state == StateLeader { // 不可能从 leader -> candidate，这是一个非法的切换
 		panic("invalid transition [leader -> candidate]")
 	}
 	r.step = stepCandidate
-	r.reset(r.Term + 1)
+	r.reset(r.Term + 1) // 自增 Term
 	r.tick = r.tickElection
-	r.Vote = r.id
+	r.Vote = r.id // 给自己投票
 	r.state = StateCandidate
 	r.logger.Infof("%x became candidate at term %d", r.id, r.Term)
 }
@@ -595,6 +613,10 @@ func (r *raft) becomePreCandidate() {
 	// Becoming a pre-candidate changes our step functions and state,
 	// but doesn't change anything else. In particular it does not increase
 	// r.Term or change r.Vote.
+
+	// 成为 pre-candidate 将会改变 step 函数和 state
+	// 但不会改变其他东西
+	// 特别地，term 不会增加，也不会修改 r.Vote
 	r.step = stepCandidate
 	r.tick = r.tickElection
 	r.state = StatePreCandidate
@@ -635,7 +657,7 @@ func (r *raft) campaign(t CampaignType) {
 		r.becomePreCandidate()
 		voteMsg = pb.MsgPreVote
 		// PreVote RPCs are sent for the next term before we've incremented r.Term.
-		term = r.Term + 1
+		term = r.Term + 1 // 节点的 term 不会改变，但是发送消息的 term 是加 1 了
 	} else {
 		r.becomeCandidate()
 		voteMsg = pb.MsgVote
@@ -662,6 +684,7 @@ func (r *raft) campaign(t CampaignType) {
 		if t == campaignTransfer {
 			ctx = []byte(t)
 		}
+		// 需要带上 vote 节点最有一条日志的
 		r.send(pb.Message{Term: term, To: id, Type: voteMsg, Index: r.raftLog.lastIndex(), LogTerm: r.raftLog.lastTerm(), Context: ctx})
 	}
 }
@@ -672,6 +695,9 @@ func (r *raft) poll(id uint64, t pb.MessageType, v bool) (granted int) {
 	} else {
 		r.logger.Infof("%x received %s rejection from %x at term %d", r.id, t, id, r.Term)
 	}
+
+	// votes 是个 map
+	// 如果已经给这个节点投过票了
 	if _, ok := r.votes[id]; !ok {
 		r.votes[id] = v
 	}
@@ -686,13 +712,17 @@ func (r *raft) poll(id uint64, t pb.MessageType, v bool) (granted int) {
 func (r *raft) Step(m pb.Message) error {
 	// Handle the message term, which may result in our stepping down to a follower.
 	switch {
-	case m.Term == 0: // 如果 Message 的 term 为 0，说明这是 local message，即自己发给自己的消息
+	case m.Term == 0: // 如果 Message 的 term 为 0，说明这是 local message，即自己发给自己的消息，在这个 switch 中无需处理
 		// local message
-	case m.Term > r.Term:
+	case m.Term > r.Term: // 如果收到了 Term 比较小的消息
 		lead := m.From
-		if m.Type == pb.MsgVote || m.Type == pb.MsgPreVote {
-			force := bytes.Equal(m.Context, []byte(campaignTransfer))
+		if m.Type == pb.MsgVote || m.Type == pb.MsgPreVote { // 如果是 vote 或者 pre-vote 消息
+			force := bytes.Equal(m.Context, []byte(campaignTransfer)) // 看是不是 leader transfer 消息
+			// 满足以下几个条件说明 leader 还在 lease 中：
+			// checkQuorum 已经打开 && leader 还在 && 没有超过 electionTimeout
 			inLease := r.checkQuorum && r.lead != None && r.electionElapsed < r.electionTimeout
+
+			// 如果 leader 还在租期且不是 leader transfer 命令，则忽略这条命令，并打印相关日志
 			if !force && inLease {
 				// If a server receives a RequestVote request within the minimum election timeout
 				// of hearing from a current leader, it does not update its term or grant its vote
@@ -700,7 +730,7 @@ func (r *raft) Step(m pb.Message) error {
 					r.id, r.raftLog.lastTerm(), r.raftLog.lastIndex(), r.Vote, m.Type, m.From, m.LogTerm, m.Index, r.Term, r.electionTimeout-r.electionElapsed)
 				return nil
 			}
-			lead = None
+			lead = None // 否则将当前 leader 设置为 None
 		}
 		switch {
 		case m.Type == pb.MsgPreVote:
@@ -742,19 +772,21 @@ func (r *raft) Step(m pb.Message) error {
 	}
 
 	switch m.Type {
+	// MsgHub 消息是进行选举前的预备消息
 	case pb.MsgHup:
 		if r.state != StateLeader {
 			ents, err := r.raftLog.slice(r.raftLog.applied+1, r.raftLog.committed+1, noLimit)
 			if err != nil {
 				r.logger.Panicf("unexpected error getting unapplied entries (%v)", err)
 			}
+			// 如果发现还有没有 apply 的 ConfChange 的日志
 			if n := numOfPendingConf(ents); n != 0 && r.raftLog.committed > r.raftLog.applied {
 				r.logger.Warningf("%x cannot campaign at term %d since there are still %d pending configuration changes to apply", r.id, r.Term, n)
 				return nil
 			}
 
 			r.logger.Infof("%x is starting a new election at term %d", r.id, r.Term)
-			if r.preVote {
+			if r.preVote { // 如果是 pre-vote 消息，则进行 campaignPreElection
 				r.campaign(campaignPreElection)
 			} else {
 				r.campaign(campaignElection)
@@ -762,26 +794,28 @@ func (r *raft) Step(m pb.Message) error {
 		} else {
 			r.logger.Debugf("%x ignoring MsgHup because already leader", r.id)
 		}
-
+		// 如果收到投票信息
 	case pb.MsgVote, pb.MsgPreVote:
 		// The m.Term > r.Term clause is for MsgPreVote. For MsgVote m.Term should
 		// always equal r.Term.
+
+		// 满足以下几个条件就可以给选票：(没有给谁投过票 || 收到更高任期的 term || 已经给相同的人投过票了) && 日志足够新
 		if (r.Vote == None || m.Term > r.Term || r.Vote == m.From) && r.raftLog.isUpToDate(m.Index, m.LogTerm) {
 			r.logger.Infof("%x [logterm: %d, index: %d, vote: %x] cast %s for %x [logterm: %d, index: %d] at term %d",
 				r.id, r.raftLog.lastTerm(), r.raftLog.lastIndex(), r.Vote, m.Type, m.From, m.LogTerm, m.Index, r.Term)
 			r.send(pb.Message{To: m.From, Type: voteRespMsgType(m.Type)})
 			if m.Type == pb.MsgVote {
 				// Only record real votes.
-				r.electionElapsed = 0
-				r.Vote = m.From
+				r.electionElapsed = 0 // 重置 electionTimeout 计数器
+				r.Vote = m.From       // 记录下给谁投了票
 			}
 		} else {
 			r.logger.Infof("%x [logterm: %d, index: %d, vote: %x] rejected %s from %x [logterm: %d, index: %d] at term %d",
 				r.id, r.raftLog.lastTerm(), r.raftLog.lastIndex(), r.Vote, m.Type, m.From, m.LogTerm, m.Index, r.Term)
-			r.send(pb.Message{To: m.From, Type: voteRespMsgType(m.Type), Reject: true})
+			r.send(pb.Message{To: m.From, Type: voteRespMsgType(m.Type), Reject: true}) // 拒绝投票，即 reject 为 true
 		}
 
-	default:
+	default: // 如果不是 MsgHup / MsgVote / MsgPreVote 消息，根据不同的角色进入不同的 step 函数（指针）
 		r.step(r, m)
 	}
 	return nil
